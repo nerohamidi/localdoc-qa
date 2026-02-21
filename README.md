@@ -1,5 +1,7 @@
 ![Example](example.png)
 
+The LLM is able to provide answers to a game that just happened even though it has not been trained on that information!
+
 # LocalDoc-QA
 
 **A Production-Ready Retrieval-Augmented Generation (RAG) System**
