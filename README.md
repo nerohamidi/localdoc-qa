@@ -1,29 +1,21 @@
 # LocalDoc-QA
 
-**A Minimal Retrieval-Augmented Generation (RAG) System Built From Scratch**
+**A Production-Ready Retrieval-Augmented Generation (RAG) System**
 
 ---
 
 ## Overview
 
-LocalDoc-QA is a locally hosted **Retrieval-Augmented Generation (RAG)** system built using:
+LocalDoc-QA is a fully local **RAG system** built with:
 
 - FastAPI  
-- PostgreSQL  
+- PostgreSQL 17  
+- pgvector (HNSW index)  
 - Sentence Transformers  
 - SQLAlchemy  
-- Manual cosine similarity search  
+- Ollama (local LLM)
 
-This project demonstrates practical knowledge in:
-
-- Retrieval-Augmented Generation (RAG)  
-- Large Language Model (LLM) workflows  
-- Machine Learning embeddings  
-- Vector similarity algorithms  
-- PostgreSQL database design  
-- Backend API development  
-
-The system ingests documents, stores vector embeddings, and retrieves semantically relevant chunks via similarity search.
+Documents are embedded, stored as `vector(384)`, and retrieved using indexed cosine similarity directly inside PostgreSQL.
 
 ---
 
@@ -32,219 +24,153 @@ The system ingests documents, stores vector embeddings, and retrieves semantical
 ```
 User Query
     ↓
-FastAPI Endpoint
+FastAPI
     ↓
-Embed Query (SentenceTransformer)
+Embed (MiniLM, 384-dim)
     ↓
-Fetch Stored Embeddings from PostgreSQL
+PostgreSQL (pgvector)
     ↓
-Cosine Similarity (Manual Implementation)
+HNSW ANN Search
     ↓
-Top-K Ranking
+Top-K Chunks
     ↓
-Return Relevant Chunks
+LLM (Ollama)
 ```
 
 ---
 
-## Features
+## Key Features
 
-- Document ingestion pipeline  
-- Text chunking with sliding window overlap  
-- Transformer-based embedding generation  
-- Manual cosine similarity computation  
-- PostgreSQL storage of embeddings (`FLOAT8[]`)  
-- Ranked semantic retrieval  
-- FastAPI search endpoint  
-- Fully local deployment (no Docker required)  
-
----
-
-## Technical Demonstrations
-
-### Retrieval-Augmented Generation (RAG)
-
-This project implements the core RAG pipeline:
-
-1. Convert documents into embeddings  
-2. Store embeddings in a database  
-3. Convert query into embedding  
-4. Compute similarity against stored vectors  
-5. Return top-k semantically similar results  
-
-Demonstrates understanding of:
-
-- Dense retrieval  
-- Embedding-based search  
-- Ranking pipelines  
-- Separation of retrieval from generation  
+- Sliding window document chunking  
+- 384-dimensional transformer embeddings  
+- Native `vector(384)` storage  
+- Cosine similarity via `<=>` operator  
+- HNSW approximate nearest neighbor index  
+- Database-level ranking (no Python full scan)  
+- Local LLM generation via Ollama  
+- Fully local deployment  
 
 ---
 
-## Large Language Model (LLM Concepts)
-
-Although this project focuses on retrieval, it demonstrates:
-
-- Transformer-based embedding usage  
-- Sentence-level semantic encoding  
-- Integration-ready pipeline for LLM completion  
-- Query-context augmentation design  
-
-Structurally ready to plug into an LLM generation layer:
-
-```python
-create_answer(query, retrieved_chunks)
-```
-
----
-
-## Machine Learning Concepts
-
-### Embedding Model
-
-Uses:
+## Embedding Model
 
 ```
 sentence-transformers/all-MiniLM-L6-v2
 ```
 
-Demonstrates understanding of:
-
-- Transformer encoders  
-- Vector representations of text  
-- 384-dimensional semantic embeddings  
-- Model loading and inference  
-
-### Vector Storage
-
-Embeddings are stored as:
-
-```
-FLOAT8[]
-```
-
-Demonstrates:
-
-- Numeric array storage  
-- Structured ML data persistence  
-- Manual similarity evaluation  
+- 384-dimensional semantic vectors  
+- Stored using pgvector  
+- Indexed with HNSW  
 
 ---
 
-## Algorithm Implementation
+## Database Schema
 
-### Sliding Window Chunking
+### documents
+
+| Field | Type |
+|-------|------|
+| id | SERIAL |
+| title | TEXT |
+
+### chunks
+
+| Field | Type |
+|-------|------|
+| id | SERIAL |
+| document_id | INTEGER |
+| chunk_text | TEXT |
+| embedding | vector(384) |
+
+### queries
+
+| Field | Type |
+|-------|------|
+| id | SERIAL |
+| query_text | TEXT |
+
+---
+
+## Retrieval Implementation
+
+Similarity search runs entirely in PostgreSQL:
 
 ```python
-def chunk_text(text, chunk_size=500, overlap=100):
+db.query(Chunk) \
+  .order_by(Chunk.embedding.cosine_distance(query_embedding)) \
+  .limit(top_k)
 ```
 
-Demonstrates:
+Indexed using:
 
-- Overlapping segmentation  
-- Context preservation  
-- Controlled memory sizing  
+```sql
+CREATE INDEX chunks_embedding_hnsw
+ON chunks
+USING hnsw (embedding vector_cosine_ops);
+```
 
-**Time complexity:** `O(n)`
+This enables:
+
+- Approximate nearest neighbor search  
+- Sublinear scaling  
+- Millisecond retrieval  
 
 ---
 
-### Cosine Similarity
+## Setup
 
-Manually implemented:
+### 1. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Install PostgreSQL 17
+
+```bash
+brew install postgresql@17
+brew services start postgresql@17
+```
+
+### 3. Create Database
+
+```bash
+psql postgres
+CREATE DATABASE localdocqa;
+```
+
+### 4. Enable pgvector
+
+```sql
+\c localdocqa
+CREATE EXTENSION vector;
+```
+
+### 5. Create Tables
+
+```bash
+python
+```
 
 ```python
-np.dot(a, b) / (||a|| * ||b||)
+from app.database import engine
+from app.models import Base
+Base.metadata.create_all(bind=engine)
 ```
 
-Demonstrates:
+### 6. Ingest a Document
 
-- Linear algebra fundamentals  
-- Vector normalization  
-- Similarity scoring  
-- Ranking by descending similarity  
-
-**Time complexity per query:**
-
-```
-O(N × D)
+```bash
+python3 -m scripts.ingest "Test Doc" sample.txt
 ```
 
-Where:
-
-- `N` = number of stored chunks  
-- `D` = embedding dimension (384)  
-
----
-
-## Database Design (PostgreSQL)
-
-### Schema
-
-#### documents
-
-| Field      | Type       |
-|------------|------------|
-| id         | SERIAL     |
-| title      | TEXT       |
-| created_at | TIMESTAMP  |
-
-#### chunks
-
-| Field       | Type      |
-|-------------|-----------|
-| id          | SERIAL    |
-| document_id | INTEGER   |
-| chunk_text  | TEXT      |
-| embedding   | FLOAT8[]  |
-
-#### queries
-
-| Field       | Type       |
-|-------------|------------|
-| id          | SERIAL     |
-| query_text  | TEXT       |
-| created_at  | TIMESTAMP  |
-
-Demonstrates:
-
-- Relational modeling  
-- Foreign key constraints  
-- Cascading deletes  
-- ML feature storage in SQL  
-
----
-
-## Backend Engineering (FastAPI)
-
-### API Endpoints
-
-#### Health Check
-
-```
-GET /
-```
-
-#### Semantic Search
-
-```
-GET /search?query=...
-```
-
-Demonstrates:
-
-- REST API design  
-- Dependency injection  
-- JSON serialization  
-- Local server deployment  
-
-### Run Server
+### 7. Run API
 
 ```bash
 uvicorn app.api:app --reload
 ```
 
-### Swagger UI
+Swagger UI:
 
 ```
 http://127.0.0.1:8000/docs
@@ -252,114 +178,20 @@ http://127.0.0.1:8000/docs
 
 ---
 
-## Setup Instructions
+## Performance
 
-### Clone Repository
+**Before (manual cosine):**
 
-```bash
-git clone https://github.com/YOUR_USERNAME/localdoc-qa.git
-cd localdoc-qa
-```
+- Full table scan  
+- O(N × D) complexity  
+- Python-side ranking  
 
-### Create Virtual Environment
+**Now (pgvector + HNSW):**
 
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-### Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### Install PostgreSQL (Homebrew)
-
-```bash
-brew install postgresql@14
-brew services start postgresql@14
-```
-
-### Create Database
-
-```bash
-psql postgres
-CREATE DATABASE localdocqa;
-\q
-```
-
-### Create Tables
-
-```bash
-psql -h localhost -U raguser -d localdocqa
-```
-
-Create schema (see SQL above).
-
-### Ingest a Document
-
-```bash
-python3 -m scripts.ingest "Test Doc" sample.txt
-```
-
-### Run API
-
-```bash
-uvicorn app.api:app --reload
-```
-
----
-
-## Performance Characteristics
-
-Current implementation uses:
-
-- Full table scan for similarity  
-- In-memory ranking  
-- No vector index  
-
-Scales well for:
-
-- Small datasets  
-- Prototyping  
-- Learning  
-
-Future optimizations:
-
-- pgvector  
-- Approximate nearest neighbor (ANN)  
-- HNSW indexing  
-- Batch retrieval  
-- GPU acceleration  
-
----
-
-## Why This Project Matters
-
-This project demonstrates:
-
-- Understanding of RAG architecture  
-- Transformer-based embedding pipelines  
-- Linear algebra for similarity search  
-- Database-backed ML systems  
-- Backend API development  
-- Algorithmic reasoning  
-- End-to-end ML system design  
-
-It shows capability beyond using frameworks — implementation from first principles.
-
----
-
-## Future Extensions
-
-- Integrate OpenAI or local LLM generation  
-- Add vector indexing (pgvector)  
-- Implement hybrid search (BM25 + dense)  
-- Add authentication  
-- Add document upload endpoint  
-- Add caching layer  
-- Implement pagination  
+- Indexed ANN search  
+- Database-level cosine distance  
+- Sublinear scaling  
+- Millisecond retrieval  
 
 ---
 
@@ -367,7 +199,19 @@ It shows capability beyond using frameworks — implementation from first princi
 
 - Python  
 - FastAPI  
-- PostgreSQL  
+- PostgreSQL 17  
+- pgvector  
 - SQLAlchemy  
 - Sentence Transformers  
-- NumPy  
+- Ollama  
+
+---
+
+## Future Extensions
+
+- Hybrid search (BM25 + vector)  
+- Re-ranking layer  
+- Async database queries  
+- Pagination  
+- Authentication  
+- Document upload endpoint  
