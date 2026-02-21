@@ -1,3 +1,5 @@
+![Example](example.png)
+
 # LocalDoc-QA
 
 **A Production-Ready Retrieval-Augmented Generation (RAG) System**
