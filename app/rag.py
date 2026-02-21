@@ -55,36 +55,28 @@ def cosine_similarity(a, b):
 from app.database import SessionLocal
 from app.models import Chunk
 
+from app.database import SessionLocal
+from app.models import Chunk
+
+from app.database import SessionLocal
+from app.models import Chunk
+
 def retrieve(query: str, top_k: int = 3):
-    """
-    Retrieve top-k most similar chunks for a query.
-    Demonstrates similarity search + ranking.
-    """
 
     db = SessionLocal()
 
-    # 1. Embed query
     query_embedding = embed_text(query)
 
-    # 2. Load all chunks
-    chunks = db.query(Chunk).all()
-
-    scored_chunks = []
-
-    for chunk in chunks:
-        score = cosine_similarity(query_embedding, chunk.embedding)
-        scored_chunks.append((score, chunk))
+    results = (
+        db.query(Chunk)
+        .order_by(Chunk.embedding.cosine_distance(query_embedding))
+        .limit(top_k)
+        .all()
+    )
 
     db.close()
 
-    # 3. Sort descending by similarity
-    scored_chunks.sort(key=lambda x: x[0], reverse=True)
-
-    # 4. Return top-k chunks
-    top_chunks = [chunk for score, chunk in scored_chunks[:top_k]]
-
-    return top_chunks
-
+    return results
 def generate_answer(query: str, chunks: list):
     """
     Generate answer using local Ollama LLM.
